@@ -55,6 +55,58 @@ app.get('/detalhes-do-projeto', async (req, res) => {
   }
 });
 
+app.get('/linhas', async (req, res) => {
+  const inicio = performance.now();
+
+  try {
+    const endpoints = [
+      'https://mobilibus.com/api/routes?origin=web&project_hash=3c189',
+      'https://mobilibus.com/api/routes?origin=web&project_id=313',
+      'https://otp.mobilibus.com/FY7J-lwk85QGbn/otp/routers/default/index/routes'
+    ];
+
+    const [dadosHash, dadosId, dadosOtp] = await Promise.all(
+      endpoints.map(url =>
+        fetch(url).then(res => res.json())
+      )
+    );
+
+    const fim = (performance.now() - inicio).toFixed(2);
+
+    res.json({
+      tempo_execucao: `${fim}ms`,
+      linhas: dadosHash.map(linhaHash => {
+        const linhaNumerica = dadosId.find(
+          linhaId =>
+            linhaId.shortName === linhaHash.shortName &&
+            linhaId.longName === linhaHash.longName
+        );
+        const linhaOtp = dadosOtp.find(
+          otp =>
+            otp.shortName === linhaHash.shortName &&
+            otp.longName === linhaHash.longName
+        );
+        return {
+          id_linha_hash: linhaHash.routeId,
+          id_linha: linhaNumerica?.routeId,
+          id_operadora_hash: linhaHash.agencyId,
+          id_operadora: linhaNumerica?.agencyId,
+          operadora: linhaOtp?.agencyName,
+          codigo_linha: linhaHash.shortName,
+          nome_linha: linhaHash.longName,
+          tarifa: linhaHash.price,
+          tipo: linhaHash.type,
+          cor: linhaHash.color,
+          cor_texto: linhaHash.textColor
+        };
+      })
+    });
+  } catch (error) {
+    console.error('Erro ao buscar dados da API:', error);
+    res.status(500).json({error: 'Erro ao buscar dados da API'});
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Servidor rodando em http://localhost:${PORT}`);
 });
