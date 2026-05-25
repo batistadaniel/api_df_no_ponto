@@ -55,6 +55,9 @@ app.get('/detalhes-do-projeto', async (req, res) => {
   }
 });
 
+/* 
+Esta rota retorna informacoes sobre as linhas do sistema DF No Ponto.
+*/
 app.get('/linhas', async (req, res) => {
   const inicio = performance.now();
 
