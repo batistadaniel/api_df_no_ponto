@@ -150,6 +150,97 @@ app.get('/linhas', async (req, res) => {
 });
 
 
+/* 
+Esta rota retorna detalhes (horaios, sentidos) sobre uma linha do sistema DF No Ponto.
+*/
+app.get('/linhas/:numero', async (req, res) => {
+  const inicio = performance.now();
+
+  try {
+    const numeroBusca = req.params.numero.toLowerCase();
+
+    const resposta = await fetch(`http://localhost:${PORT}/linhas`);
+    const dadosLinhas = await resposta.json();
+
+    const linha = dadosLinhas.linhas.find(l =>
+      l.codigo_linha.toLowerCase() === numeroBusca ||
+      l.nome_linha.toLowerCase() === numeroBusca
+    );
+
+    if (!linha) {
+      return res.status(404).json({
+        error: 'Linha não encontrada'
+      });
+    }
+
+    const endpoints = {
+      route_hash: `https://mobilibus.com/api/timetable?origin=web&v=2&project_hash=3c189&route_hash=${linha.id_linha_hash}`,
+      route_id: `https://mobilibus.com/api/timetable?origin=web&v=2&project_id=313&route_id=${linha.id_linha}`
+    };
+
+    const [respostaHash, respostaId] = await Promise.all([
+      fetch(endpoints.route_hash),
+      fetch(endpoints.route_id)
+    ]);
+
+    const dadosHash = await respostaHash.json();
+    const dadosId = await respostaId.json();
+
+    const fim = (performance.now() - inicio).toFixed(2);
+
+    res.json({
+      tempo_execucao: `${fim}ms`,
+
+      linha: {
+        id_linha_hash: dadosHash.routeId,
+        id_linha: dadosId.routeId,
+        codigo_linha: dadosHash.shortName,
+        nome_linha: dadosHash.longName,
+        cor_operadora: dadosHash.color,
+        tarifa: dadosHash.price
+      },
+
+      viagens: dadosHash.timetable.trips.map((tripHash, index) => {
+        const tripNumerica = dadosId.timetable.trips[index];
+
+        return {
+          id_viagem_hash: tripHash.tripId,
+          id_viagem: tripNumerica?.tripId,
+          sentido: tripHash.directionId,
+          descricao: tripHash.tripDesc
+        };
+      }),
+      
+      sentidos: dadosHash.timetable.directions.map((direcaoHash, index) => {
+        const direcaoNumerica = dadosId.timetable.directions[index];
+
+        return {
+          id_sentido_hash: direcaoHash.directionId,
+          id_sentido: direcaoNumerica?.directionId,
+          destino: direcaoHash.desc,
+          servicos: direcaoHash.services.map((servicoHash, servicoIndex) => {
+            const servicoNumerico =
+              direcaoNumerica?.services[servicoIndex];
+
+            return {
+              id_servico_hash: servicoHash.serviceId,
+              id_servico: servicoNumerico?.serviceId,
+              descricao: servicoHash.desc,
+              partidas: servicoHash.departures.map(partida => ({
+                partida: partida.dep,
+                chegada: partida.arr
+              }))
+            };
+          })
+        };
+      })
+    });
+
+  } catch (error) {
+    console.error('Erro ao buscar dados da API:', error);
+    res.status(500).json({error: 'Erro ao buscar dados da API'});
+  }
+});
 
 app.listen(PORT, () => {
   console.log(`Servidor rodando em http://localhost:${PORT}`);
