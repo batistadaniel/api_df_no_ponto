@@ -56,6 +56,45 @@ app.get('/detalhes-do-projeto', async (req, res) => {
 });
 
 /* 
+Esta rota retorna informacoes sobre as operadoras do sistema DF No Ponto.
+*/
+app.get('/operadoras', async (req, res) => {
+  const inicio = performance.now();
+
+  try {
+    const endpoints = [
+      'https://mobilibus.com/api/agencies?origin=web&project_hash=3c189',
+      'https://mobilibus.com/api/agencies?origin=web&project_id=313',
+    ];
+
+    const [dadosHash, dadosId] = await Promise.all(
+      endpoints.map(url =>
+        fetch(url).then(res => res.json())
+      )
+    );
+
+    const fim = (performance.now() - inicio).toFixed(2);
+
+    res.json({
+      tempo_execucao: `${fim}ms`,
+      operadoras: dadosHash.map(operadoraHash => {
+        const operadoraNumerica = dadosId.find(
+          operadoraId => operadoraId.name === operadoraHash.name
+        );
+        return {
+          id_operadora_hash: operadoraHash.agencyId,
+          id_operadora: operadoraNumerica?.agencyId,
+          nome_operadora: operadoraHash.name
+        };
+      })
+    });
+  } catch (error) {
+    console.error('Erro ao buscar dados da API:', error);
+    res.status(500).json({error: 'Erro ao buscar dados da API'});
+  }  
+});
+
+/* 
 Esta rota retorna informacoes sobre as linhas do sistema DF No Ponto.
 */
 app.get('/linhas', async (req, res) => {
@@ -109,6 +148,8 @@ app.get('/linhas', async (req, res) => {
     res.status(500).json({error: 'Erro ao buscar dados da API'});
   }
 });
+
+
 
 app.listen(PORT, () => {
   console.log(`Servidor rodando em http://localhost:${PORT}`);
