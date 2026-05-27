@@ -117,6 +117,7 @@ app.get('/linhas', async (req, res) => {
 
     res.json({
       tempo_execucao: `${fim}ms`,
+      qtd_linhas: dadosHash.length,
       linhas: dadosHash.map(linhaHash => {
         const linhaNumerica = dadosId.find(
           linhaId =>
