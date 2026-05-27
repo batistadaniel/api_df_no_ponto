@@ -154,6 +154,13 @@ app.get('/linhas', async (req, res) => {
 /* 
 Esta rota retorna detalhes (horaios, sentidos) sobre uma linha do sistema DF No Ponto.
 */
+const formatarDelay = (segundos) => {
+  const abs = Math.abs(segundos);
+  const m = Math.floor(abs / 60);
+  const s = abs % 60;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+};
+
 app.get('/linhas/:numero', async (req, res) => {
   const inicio = performance.now();
   const numeroBusca = req.params.numero?.toLowerCase().trim();
@@ -179,33 +186,114 @@ app.get('/linhas/:numero', async (req, res) => {
       }
 
       if (match?.codigo_linha) return res.redirect(`/linhas/${match.codigo_linha}`);
-      return res.status(404).json({ error: 'Linha não encontrada no sistema oficial.' });
+      return res.status(404).json({ error: 'Linha não encontrada no systema oficial.' });
     }
 
-    const [respostaHash, respostaId] = await Promise.all([
+    const [respostaHash, respostaId, respostaOperadoras] = await Promise.all([
       fetch(`https://mobilibus.com/api/timetable?origin=web&v=2&project_hash=3c189&route_hash=${linha.id_linha_hash}`),
-      fetch(`https://mobilibus.com/api/timetable?origin=web&v=2&project_id=313&route_id=${linha.id_linha}`)
+      fetch(`https://mobilibus.com/api/timetable?origin=web&v=2&project_id=313&route_id=${linha.id_linha}`),
+      fetch('https://otp.mobilibus.com/FY7J-lwk85QGbn/otp/routers/default/index/routes') 
     ]);
 
     const dadosHash = await respostaHash.json();
     const dadosId = await respostaId.json();
+    const listaOperadoras = await respostaOperadoras.json();
+
+    const idLinhaString = String(dadosId.routeId);
+    const dadosOperadora = listaOperadoras.find(route => 
+      route.id === `1:${idLinhaString}` || 
+      route.id?.endsWith(`:${idLinhaString}`) || 
+      route.shortName === dadosHash.shortName
+    );
+
+    const tripsRaw = dadosHash.timetable?.trips || [];
+
+    const promessasItinerarios = tripsRaw.map(async (t, i) => {
+      const idViagemHash = t.tripId;
+      const idViagem = dadosId.timetable?.trips?.[i]?.tripId;
+
+      try {
+        const [resDetalhesHash, resDetalhesId, resVeiculos] = await Promise.all([
+          idViagemHash ? fetch(`https://mobilibus.com/api/trip-details?origin=web&v=2&trip_hash=${idViagemHash}`) : null,
+          idViagem ? fetch(`https://mobilibus.com/api/trip-details?origin=web&v=2&trip_id=${idViagem}`) : null,
+          idViagem && dadosId.routeId ? fetch(`https://mobilibus.com/api/vehicles?origin=web&trip_id=${idViagem}&route_id=${dadosId.routeId}`) : null
+        ]);
+
+        const dadosDetalhesHash = resDetalhesHash ? await resDetalhesHash.json() : null;
+        const dadosDetalhesId = resDetalhesId ? await resDetalhesId.json() : null;
+        const dadosVeiculos = resVeiculos ? await resVeiculos.json() : [];
+
+        const stopsHash = dadosDetalhesHash?.stops || [];
+        const stopsId = dadosDetalhesId?.stops || [];
+
+        const paradas = stopsHash.map((stopH, sIndex) => {
+          const stopIdNormal = stopsId[sIndex];
+          
+          return {
+            id_parada_hash: stopH.stopId,
+            id_parada: stopIdNormal ? stopIdNormal.stopId : null,
+            nome: stopH.name,
+            latitude: stopH.lat,
+            longitude: stopH.lng,
+            tempo: stopH.int,
+            parada: sIndex + 1
+          };
+        });
+
+        const veiculos = (Array.isArray(dadosVeiculos) ? dadosVeiculos : []).map(vehicle => ({
+          prefixo: vehicle.vehicleId,
+          ultimo_sinal: vehicle.positionTime,
+          latitude: vehicle.lat,
+          longitude: vehicle.lng,
+          progresso: vehicle.percTravelled,
+          angulo: vehicle.heading,
+          horario_partida: vehicle.startTime,
+          delay: vehicle.delay,
+          parada_atual: vehicle.seq,
+          status: Math.abs(vehicle.delay) <= 60 ? "No horário" : (vehicle.delay > 0 ? "Atrasado" : "Adiantado"),
+          delay_formatado: formatarDelay(vehicle.delay)
+        }));
+
+        return {
+          id_viagem_hash: idViagemHash,
+          id_viagem: idViagem,
+          sentido: t.directionId,
+          descricao: t.tripDesc,
+          qtd_paradas: paradas.length,
+          qtd_veiculos_rodando: veiculos.length,
+          veiculos_rodando: veiculos,
+          itinerario: paradas
+        };
+      } catch (err) {
+        console.error(`Erro ao buscar itinerário duplo da viagem ${idViagemHash}:`, err.message);
+        return {
+          id_viagem_hash: idViagemHash,
+          id_viagem: idViagem,
+          sentido: t.directionId,
+          descricao: t.tripDesc,
+          qtd_paradas: 0,
+          qtd_veiculos_rodando: 0,
+          veiculos_rodando: [],
+          itinerario: []
+        };
+      }
+    });
+
+    const viagensComItinerario = await Promise.all(promessasItinerarios);
 
     res.json({
       tempo_execucao: `${(performance.now() - inicio).toFixed(2)}ms`,
+      qtd_sentidos: dadosHash.timetable?.directions.length,
       linha: {
         id_linha_hash: dadosHash.routeId,
         id_linha: dadosId.routeId,
         codigo_linha: dadosHash.shortName,
         nome_linha: dadosHash.longName,
         cor_operadora: dadosHash.color,
+        operadora: dadosOperadora ? dadosOperadora.agencyName : "Não encontrada", 
         tarifa: dadosHash.price
       },
-      viagens: (dadosHash.timetable?.trips || []).map((t, i) => ({
-        id_viagem_hash: t.tripId,
-        id_viagem: dadosId.timetable?.trips?.[i]?.tripId,
-        sentido: t.directionId,
-        descricao: t.tripDesc
-      })),
+      viagens: viagensComItinerario, 
       sentidos: (dadosHash.timetable?.directions || []).map((d, i) => ({
         id_sentido_hash: d.directionId,
         id_sentido: dadosId.timetable?.directions?.[i]?.directionId,
@@ -214,6 +302,7 @@ app.get('/linhas/:numero', async (req, res) => {
           id_servico_hash: s.serviceId,
           id_servico: dadosId.timetable?.directions?.[i]?.services?.[si]?.serviceId,
           descricao: s.desc,
+          qtd_partidas: s.departures.length,
           partidas: (s.departures || []).map(p => ({ partida: p.dep, chegada: p.arr }))
         }))
       }))
