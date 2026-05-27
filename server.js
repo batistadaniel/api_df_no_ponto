@@ -156,42 +156,42 @@ Esta rota retorna detalhes (horaios, sentidos) sobre uma linha do sistema DF No 
 */
 app.get('/linhas/:numero', async (req, res) => {
   const inicio = performance.now();
+  const numeroBusca = req.params.numero?.toLowerCase().trim();
 
   try {
-    const numeroBusca = req.params.numero.toLowerCase();
-
     const resposta = await fetch(`http://localhost:${PORT}/linhas`);
     const dadosLinhas = await resposta.json();
 
-    const linha = dadosLinhas.linhas.find(l =>
-      l.codigo_linha.toLowerCase() === numeroBusca ||
-      l.nome_linha.toLowerCase() === numeroBusca
-    );
+    let linha = dadosLinhas.linhas.find(l => l.codigo_linha?.toLowerCase() === numeroBusca || l.nome_linha?.toLowerCase() === numeroBusca);
+    if (numeroBusca === "ceilandia") linha = dadosLinhas.linhas.find(l => l.nome_linha?.toLowerCase() === "ceilândia");
 
     if (!linha) {
-      return res.status(404).json({
-        error: 'Linha não encontrada'
-      });
+      let match = null;
+
+      if (numeroBusca.includes(".")) {
+        const [p1, p2] = numeroBusca.split(".");
+        match = dadosLinhas.linhas.find(l => l.codigo_linha === `${p1.padStart(4 - p2.length, "0")}.${p2}`);
+      }
+
+      if (!match) {
+        const buscaLimpa = numeroBusca.replace(/\./g, "").padStart(4, "0");
+        match = dadosLinhas.linhas.find(l => (l.codigo_linha || "").replace(/\./g, "").padStart(4, "0") === buscaLimpa);
+      }
+
+      if (match?.codigo_linha) return res.redirect(`/linhas/${match.codigo_linha}`);
+      return res.status(404).json({ error: 'Linha não encontrada no sistema oficial.' });
     }
 
-    const endpoints = {
-      route_hash: `https://mobilibus.com/api/timetable?origin=web&v=2&project_hash=3c189&route_hash=${linha.id_linha_hash}`,
-      route_id: `https://mobilibus.com/api/timetable?origin=web&v=2&project_id=313&route_id=${linha.id_linha}`
-    };
-
     const [respostaHash, respostaId] = await Promise.all([
-      fetch(endpoints.route_hash),
-      fetch(endpoints.route_id)
+      fetch(`https://mobilibus.com/api/timetable?origin=web&v=2&project_hash=3c189&route_hash=${linha.id_linha_hash}`),
+      fetch(`https://mobilibus.com/api/timetable?origin=web&v=2&project_id=313&route_id=${linha.id_linha}`)
     ]);
 
     const dadosHash = await respostaHash.json();
     const dadosId = await respostaId.json();
 
-    const fim = (performance.now() - inicio).toFixed(2);
-
     res.json({
-      tempo_execucao: `${fim}ms`,
-
+      tempo_execucao: `${(performance.now() - inicio).toFixed(2)}ms`,
       linha: {
         id_linha_hash: dadosHash.routeId,
         id_linha: dadosId.routeId,
@@ -200,46 +200,28 @@ app.get('/linhas/:numero', async (req, res) => {
         cor_operadora: dadosHash.color,
         tarifa: dadosHash.price
       },
-
-      viagens: dadosHash.timetable.trips.map((tripHash, index) => {
-        const tripNumerica = dadosId.timetable.trips[index];
-
-        return {
-          id_viagem_hash: tripHash.tripId,
-          id_viagem: tripNumerica?.tripId,
-          sentido: tripHash.directionId,
-          descricao: tripHash.tripDesc
-        };
-      }),
-      
-      sentidos: dadosHash.timetable.directions.map((direcaoHash, index) => {
-        const direcaoNumerica = dadosId.timetable.directions[index];
-
-        return {
-          id_sentido_hash: direcaoHash.directionId,
-          id_sentido: direcaoNumerica?.directionId,
-          destino: direcaoHash.desc,
-          servicos: direcaoHash.services.map((servicoHash, servicoIndex) => {
-            const servicoNumerico =
-              direcaoNumerica?.services[servicoIndex];
-
-            return {
-              id_servico_hash: servicoHash.serviceId,
-              id_servico: servicoNumerico?.serviceId,
-              descricao: servicoHash.desc,
-              partidas: servicoHash.departures.map(partida => ({
-                partida: partida.dep,
-                chegada: partida.arr
-              }))
-            };
-          })
-        };
-      })
+      viagens: (dadosHash.timetable?.trips || []).map((t, i) => ({
+        id_viagem_hash: t.tripId,
+        id_viagem: dadosId.timetable?.trips?.[i]?.tripId,
+        sentido: t.directionId,
+        descricao: t.tripDesc
+      })),
+      sentidos: (dadosHash.timetable?.directions || []).map((d, i) => ({
+        id_sentido_hash: d.directionId,
+        id_sentido: dadosId.timetable?.directions?.[i]?.directionId,
+        destino: d.desc,
+        servicos: (d.services || []).map((s, si) => ({
+          id_servico_hash: s.serviceId,
+          id_servico: dadosId.timetable?.directions?.[i]?.services?.[si]?.serviceId,
+          descricao: s.desc,
+          partidas: (s.departures || []).map(p => ({ partida: p.dep, chegada: p.arr }))
+        }))
+      }))
     });
 
   } catch (error) {
-    console.error('Erro ao buscar dados da API:', error);
-    res.status(500).json({error: 'Erro ao buscar dados da API'});
+    console.error('Erro na rota /linhas:', error.message);
+    res.status(500).json({ error: 'Erro ao buscar dados da API', detalhe: error.message });
   }
 });
 
