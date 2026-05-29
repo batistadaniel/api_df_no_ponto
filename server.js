@@ -257,7 +257,8 @@ app.get('/linhas/:numero', async (req, res) => {
         return {
           id_viagem_hash: idViagemHash,
           id_viagem: idViagem,
-          sentido: t.directionId,
+          sentido: t.directionId === 0 ? "Ida" : "Volta",
+          directionId: t.directionId,
           descricao: t.tripDesc,
           qtd_paradas: paradas.length,
           qtd_veiculos_rodando: veiculos.length,
@@ -293,19 +294,21 @@ app.get('/linhas/:numero', async (req, res) => {
         operadora: dadosOperadora ? dadosOperadora.agencyName : "Não encontrada", 
         tarifa: dadosHash.price
       },
-      viagens: viagensComItinerario, 
-      sentidos: (dadosHash.timetable?.directions || []).map((d, i) => ({
-        id_sentido_hash: d.directionId,
-        id_sentido: dadosId.timetable?.directions?.[i]?.directionId,
-        destino: d.desc,
-        servicos: (d.services || []).map((s, si) => ({
-          id_servico_hash: s.serviceId,
-          id_servico: dadosId.timetable?.directions?.[i]?.services?.[si]?.serviceId,
-          descricao: s.desc,
-          qtd_partidas: s.departures.length,
-          partidas: (s.departures || []).map(p => ({ partida: p.dep, chegada: p.arr }))
+      viagens: viagensComItinerario.sort((a, b) => a.directionId - b.directionId),
+      sentidos: (dadosHash.timetable?.directions || [])
+        .sort((a, b) => a.directionId - b.directionId)  
+        .map((d, i) => ({
+          id_sentido_hash: d.directionId,
+          id_sentido: dadosId.timetable?.directions?.[i]?.directionId,
+          destino: d.desc,
+          servicos: (d.services || []).map((s, si) => ({
+            id_servico_hash: s.serviceId,
+            id_servico: dadosId.timetable?.directions?.[i]?.services?.[si]?.serviceId,
+            descricao: s.desc,
+            qtd_partidas: s.departures.length,
+            partidas: (s.departures || []).map(p => ({ partida: p.dep, chegada: p.arr }))
+          }))
         }))
-      }))
     });
 
   } catch (error) {
