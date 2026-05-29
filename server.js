@@ -375,6 +375,7 @@ app.get('/alertas', async (req, res) => {
 
     res.json({
       tempo_execucao: `${fim}ms`,
+      qtd_alertas: dadosAlertasHash.length,
       alertas: dadosAlertasHash.map((alertaHash, index) => {
         const alertaNumerico = dadosAlertasId[index];
         const operadorasAfetadas =
@@ -419,7 +420,8 @@ app.get('/alertas', async (req, res) => {
                 id_linha_hash: linhaHash?.routeId,
                 id_linha: linhaNumerica?.routeId,
                 codigo_linha: linhaHash?.shortName,
-                nome_linha: linhaHash?.longName
+                nome_linha: linhaHash?.longName,
+                cor_operadora: linhaHash?.color
               };
             }
           );
@@ -433,15 +435,16 @@ app.get('/alertas', async (req, res) => {
           efeito: alertaHash.effect,
           titulo: alertaHash.content?.PT?.[1],
           descricao: alertaHash.content?.PT?.[2],
+          qtd_operadoras_afetadas: operadorasAfetadas.length,
           operadoras_afetadas: operadorasAfetadas,
+          qtd_linhas_afetadas: linhasAfetadas.length,
           linhas_afetadas: linhasAfetadas
         };
       })
     });
 
   } catch (error) {
-    console.error('Erro na rota /alertas:', error.message
-    );
+    console.error('Erro na rota /alertas:', error.message );
     res.status(500).json({ error: 'Erro ao buscar dados da API', detalhe: error.message });
   }
 });
