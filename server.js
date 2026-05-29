@@ -317,6 +317,151 @@ app.get('/linhas/:numero', async (req, res) => {
   }
 });
 
+/* 
+Esta rota retorna detalhes sobre alertas do sistema DF No Ponto.
+*/
+app.get('/alertas', async (req, res) => {
+  const inicio = performance.now();
+
+  const formatarData = (timestamp, timezoneOffset = 0) => {
+    const data = new Date(timestamp);
+
+    return data.toLocaleString('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+  };
+
+  try {
+
+    const endpoints = {
+      alertas_hash: 'https://mobilibus.com/api/alerts?project_hash=3c189',
+      alertas_id: 'https://mobilibus.com/api/alerts?project_id=313',
+      linhas_hash: 'https://mobilibus.com/api/routes?origin=web&project_hash=3c189',
+      linhas_id: 'https://mobilibus.com/api/routes?origin=web&project_id=313',
+      operadoras_hash: 'https://mobilibus.com/api/agencies?origin=web&project_hash=3c189',
+      operadoras_id: 'https://mobilibus.com/api/agencies?origin=web&project_id=313'
+    };
+
+    const [
+      respostaAlertasHash,
+      respostaAlertasId,
+      respostaLinhasHash,
+      respostaLinhasId,
+      respostaOperadorasHash,
+      respostaOperadorasId
+    ] = await Promise.all([
+      fetch(endpoints.alertas_hash),
+      fetch(endpoints.alertas_id),
+      fetch(endpoints.linhas_hash),
+      fetch(endpoints.linhas_id),
+      fetch(endpoints.operadoras_hash),
+      fetch(endpoints.operadoras_id)
+    ]);
+
+    const dadosAlertasHash = await respostaAlertasHash.json();
+    const dadosAlertasId = await respostaAlertasId.json();
+    const dadosLinhasHash = await respostaLinhasHash.json();
+    const dadosLinhasId = await respostaLinhasId.json();
+    const dadosOperadorasHash = await respostaOperadorasHash.json();
+    const dadosOperadorasId = await respostaOperadorasId.json();
+
+    const fim = (performance.now() - inicio).toFixed(2);
+
+    res.json({
+      tempo_execucao: `${fim}ms`,
+      alertas: dadosAlertasHash.map((alertaHash, index) => {
+        const alertaNumerico = dadosAlertasId[index];
+        const operadorasAfetadas =
+          alertaHash.affectedEntities.agencyIds.map(
+            agencyIdHash => {
+
+              const operadoraHash =
+                dadosOperadorasHash.find(
+                  operadora =>
+                    operadora.agencyId === agencyIdHash
+                );
+
+              const operadoraNumerica =
+                dadosOperadorasId.find(
+                  operadora =>
+                    operadora.name === operadoraHash?.name
+                );
+
+              return {
+                id_operadora_hash: operadoraHash?.agencyId,
+                id_operadora: operadoraNumerica?.agencyId,
+                nome_operadora: operadoraHash?.name
+              };
+            }
+          );
+
+        const linhasAfetadas =
+          alertaHash.affectedEntities.routeIds.map(
+            routeIdHash => {
+              const linhaHash =
+                dadosLinhasHash.find(
+                  linha =>
+                    linha.routeId === routeIdHash
+                );
+              const linhaNumerica =
+                dadosLinhasId.find(
+                  linha =>
+                    linha.shortName === linhaHash?.shortName &&
+                    linha.longName === linhaHash?.longName
+                );
+              return {
+                id_linha_hash: linhaHash?.routeId,
+                id_linha: linhaNumerica?.routeId,
+                codigo_linha: linhaHash?.shortName,
+                nome_linha: linhaHash?.longName
+              };
+            }
+          );
+
+        return {
+          id_alerta_hash: alertaHash.alertId,
+          id_alerta: alertaNumerico?.alertId,
+          inicio_alerta: formatarData(alertaHash.activeFrom),
+          fim_alerta: formatarData(alertaHash.activeTo),
+          causa: alertaHash.cause,
+          efeito: alertaHash.effect,
+          titulo: alertaHash.content?.PT?.[1],
+          descricao: alertaHash.content?.PT?.[2],
+          operadoras_afetadas: operadorasAfetadas,
+          linhas_afetadas: linhasAfetadas
+        };
+      })
+    });
+
+  } catch (error) {
+    console.error('Erro na rota /alertas:', error.message
+    );
+    res.status(500).json({ error: 'Erro ao buscar dados da API', detalhe: error.message });
+  }
+});
+
+
+// usar depois
+app.get('/noticias', async (req, res) => {
+  const inicio = performance.now();
+
+  try {
+    
+    res.json({ });
+  } catch (error) {
+    console.error('Erro na rota /noticias:', error.message);
+    res.status(500).json({ error: 'Erro ao buscar dados da API', detalhe: error.message });
+  }
+});
+
+
+
 app.listen(PORT, () => {
   console.log(`Servidor rodando em http://localhost:${PORT}`);
 });
