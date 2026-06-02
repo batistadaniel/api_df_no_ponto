@@ -400,10 +400,17 @@ app.get('/linhas/:numero/horarios', async (req, res) => {
       route.shortName === dadosHash.shortName
     );
 
+    const destinosPorSentido = {};
+
+    (dadosHash.timetable?.trips || []).forEach(t => {
+      if (!destinosPorSentido[t.directionId]) {
+        destinosPorSentido[t.directionId] = t.tripDesc;
+      }
+    });
+
     res.json({
       tempo_execucao: `${(performance.now() - inicio).toFixed(2)}ms`,
       qtd_sentidos: dadosHash.timetable?.directions.length,
-
       linha: {
         id_linha_hash: dadosHash.routeId,
         id_linha: dadosId.routeId,
@@ -415,20 +422,17 @@ app.get('/linhas/:numero/horarios', async (req, res) => {
           : "Não encontrada",
         tarifa: dadosHash.price
       },
-
       sentidos: (dadosHash.timetable?.directions || [])
         .sort((a, b) => a.directionId - b.directionId)
         .map((d, i) => ({
           id_sentido_hash: d.directionId, // IMPORTANTE - usar este no frontend
           // id_sentido: dadosId.timetable?.directions?.[i]?.directionId,
-          destino: d.desc,
-
+          destino: destinosPorSentido[d.directionId] || d.desc,
           servicos: (d.services || []).map((s, si) => ({
             id_servico_hash: s.serviceId,
             id_servico: dadosId.timetable?.directions?.[i]?.services?.[si]?.serviceId,
             descricao: s.desc,
             qtd_partidas: s.departures.length,
-
             partidas: (s.departures || []).map(p => ({
               partida: p.dep,
               chegada: p.arr
@@ -601,7 +605,7 @@ app.get('/linhas/:numero/itinerarios', async (req, res) => {
             ? "Ida"
             : "Volta",
           directionId: t.directionId,
-          descricao: t.tripDesc,
+          destino: t.tripDesc,
           qtd_paradas: paradas.length,
           qtd_veiculos_rodando: veiculos.length,
           veiculos_rodando: veiculos,
@@ -651,6 +655,207 @@ app.get('/linhas/:numero/itinerarios', async (req, res) => {
   } catch (error) {
     console.error(
       'Erro na rota /linhas/:numero/itinerarios:',
+      error.message
+    );
+
+    res.status(500).json({
+      error: 'Erro ao buscar dados da API',
+      detalhe: error.message
+    });
+  }
+});
+
+/* 
+Esta rota retorna detalhes do veiculos em tempo real por linha especifica
+*/
+app.get('/linhas/:numero/gps', async (req, res) => {
+  const inicio = performance.now();
+  const numeroBusca = req.params.numero?.toLowerCase().trim();
+
+  try {
+    const resposta = await fetch(`http://localhost:${PORT}/linhas`);
+    const dadosLinhas = await resposta.json();
+
+    let linha = dadosLinhas.linhas.find(
+      l =>
+        l.codigo_linha?.toLowerCase() === numeroBusca ||
+        l.nome_linha?.toLowerCase() === numeroBusca
+    );
+
+    if (numeroBusca === "ceilandia") {
+      linha = dadosLinhas.linhas.find(
+        l => l.nome_linha?.toLowerCase() === "ceilândia"
+      );
+    }
+
+    if (!linha) {
+      let match = null;
+
+      if (numeroBusca.includes(".")) {
+        const [p1, p2] = numeroBusca.split(".");
+
+        match = dadosLinhas.linhas.find(
+          l => l.codigo_linha === `${p1.padStart(4 - p2.length, "0")}.${p2}`
+        );
+      }
+
+      if (!match) {
+        const buscaLimpa = numeroBusca
+          .replace(/\./g, "")
+          .padStart(4, "0");
+
+        match = dadosLinhas.linhas.find(
+          l =>
+            (l.codigo_linha || "")
+              .replace(/\./g, "")
+              .padStart(4, "0") === buscaLimpa
+        );
+      }
+
+      if (match?.codigo_linha) {
+        return res.redirect(`/linhas/${match.codigo_linha}/gps`);
+      }
+
+      return res.status(404).json({
+        error: 'Linha não encontrada no sistema oficial.'
+      });
+    }
+
+    const [respostaHash, respostaId, respostaOperadoras] = await Promise.all([
+      fetch(`https://mobilibus.com/api/timetable?origin=web&v=2&project_hash=3c189&route_hash=${linha.id_linha_hash}`),
+      fetch(`https://mobilibus.com/api/timetable?origin=web&v=2&project_id=313&route_id=${linha.id_linha}`),
+      fetch('https://otp.mobilibus.com/FY7J-lwk85QGbn/otp/routers/default/index/routes')
+    ]);
+
+    const dadosHash = await respostaHash.json();
+    const dadosId = await respostaId.json();
+    const listaOperadoras = await respostaOperadoras.json();
+
+    const idLinhaString = String(dadosId.routeId);
+
+    const dadosOperadora = listaOperadoras.find(route =>
+      route.id === `1:${idLinhaString}` ||
+      route.id?.endsWith(`:${idLinhaString}`) ||
+      route.shortName === dadosHash.shortName
+    );
+
+    const tripsRaw = dadosHash.timetable?.trips || [];
+
+    const promessasGPS = tripsRaw.map(async (t, i) => {
+      const idViagem = dadosId.timetable?.trips?.[i]?.tripId;
+
+      try {
+        if (!idViagem || !dadosId.routeId) {
+          return null;
+        }
+
+        const respostaVeiculos = await fetch(
+          `https://mobilibus.com/api/vehicles?origin=web&trip_id=${idViagem}&route_id=${dadosId.routeId}`
+        );
+
+        const dadosVeiculos = await respostaVeiculos.json();
+
+        const veiculos = (Array.isArray(dadosVeiculos)
+          ? dadosVeiculos
+          : []).map(vehicle => ({
+            prefixo: vehicle.vehicleId,
+            ultimo_sinal: vehicle.positionTime,
+            latitude: vehicle.lat,
+            longitude: vehicle.lng,
+            progresso: vehicle.percTravelled,
+            angulo: vehicle.heading,
+            horario_partida: vehicle.startTime,
+            delay: vehicle.delay,
+            parada_atual: vehicle.seq,
+            status:
+              Math.abs(vehicle.delay) <= 60
+                ? "No horário"
+                : (vehicle.delay > 0
+                    ? "Atrasado"
+                    : "Adiantado"),
+
+            delay_formatado: formatarDelay(vehicle.delay)
+          }));
+
+        return {
+          id_viagem: idViagem,
+          id_viagem_hash: t.tripId,
+          sentido: t.directionId === 0
+            ? "Ida"
+            : "Volta",
+          directionId: t.directionId,
+          destino: t.tripDesc,
+          qtd_veiculos_rodando: veiculos.length,
+          veiculos_rodando: veiculos
+        };
+
+      } catch (err) {
+        console.error(
+          `Erro ao buscar GPS da viagem ${idViagem}:`,
+          err.message
+        );
+        return null;
+      }
+    });
+
+    const gpsRaw = await Promise.all(promessasGPS);
+
+    const gpsFiltrado = gpsRaw
+      .filter(Boolean)
+      .sort((a, b) => a.directionId - b.directionId);
+
+    const veiculosPorSentido = [];
+
+    gpsFiltrado.forEach(item => {
+      const existente = veiculosPorSentido.find(
+        v => v.directionId === item.directionId
+      );
+
+      if (!existente) {
+        veiculosPorSentido.push({
+          sentido: item.sentido,
+          directionId: item.directionId,
+          destino: item.destino,
+          viagens: [
+            {
+              id_viagem: item.id_viagem,
+              id_viagem_hash: item.id_viagem_hash,
+              qtd_veiculos_rodando: item.qtd_veiculos_rodando,
+              veiculos_rodando: item.veiculos_rodando
+            }
+          ]
+        });
+
+      } else {
+        existente.viagens.push({
+          id_viagem: item.id_viagem,
+          id_viagem_hash: item.id_viagem_hash,
+          qtd_veiculos_rodando: item.qtd_veiculos_rodando,
+          veiculos_rodando: item.veiculos_rodando
+        });
+      }
+    });
+
+    res.json({
+      tempo_execucao: `${(performance.now() - inicio).toFixed(2)}ms`,
+      qtd_sentidos: dadosHash.timetable?.directions.length,
+      linha: {
+        id_linha_hash: dadosHash.routeId,
+        id_linha: dadosId.routeId,
+        codigo_linha: dadosHash.shortName,
+        nome_linha: dadosHash.longName,
+        cor_operadora: dadosHash.color,
+        operadora: dadosOperadora
+          ? dadosOperadora.agencyName
+          : "Não encontrada",
+        tarifa: dadosHash.price
+      },
+      veiculos: veiculosPorSentido
+    });
+
+  } catch (error) {
+    console.error(
+      'Erro na rota /linhas/:numero/gps:',
       error.message
     );
 
