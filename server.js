@@ -259,7 +259,7 @@ app.get('/linhas/:numero', async (req, res) => {
           id_viagem: idViagem,
           sentido: t.directionId === 0 ? "Ida" : "Volta",
           directionId: t.directionId,
-          descricao: t.tripDesc,
+          destino: t.tripDesc, // IMPORTANTE - usar este no frontend
           qtd_paradas: paradas.length,
           qtd_veiculos_rodando: veiculos.length,
           veiculos_rodando: veiculos,
@@ -283,6 +283,14 @@ app.get('/linhas/:numero', async (req, res) => {
 
     const viagensComItinerario = await Promise.all(promessasItinerarios);
 
+    const destinosPorSentido = {};
+
+    viagensComItinerario.forEach(v => {
+      if (!destinosPorSentido[v.directionId]) {
+        destinosPorSentido[v.directionId] = v.destino;
+      }
+    });
+    
     res.json({
       tempo_execucao: `${(performance.now() - inicio).toFixed(2)}ms`,
       qtd_sentidos: dadosHash.timetable?.directions.length,
@@ -296,12 +304,29 @@ app.get('/linhas/:numero', async (req, res) => {
         tarifa: dadosHash.price
       },
       viagens: viagensComItinerario.sort((a, b) => a.directionId - b.directionId),
+      // sentidos: (dadosHash.timetable?.directions || [])
+      //   .sort((a, b) => a.directionId - b.directionId)
+      //   .map((d, i) => ({
+      //     id_sentido_hash: d.directionId, // IMPORTANTE - usar este no frontend
+      //     destino: destinosPorSentido[d.directionId] || d.desc,
+      //     servicos: (d.services || []).map((s, si) => ({
+      //       id_servico_hash: s.serviceId,
+      //       id_servico: dadosId.timetable?.directions?.[i]?.services?.[si]?.serviceId,
+      //       descricao: s.desc,
+      //       qtd_partidas: s.departures.length,
+
+      //       partidas: (s.departures || []).map(p => ({
+      //         partida: p.dep,
+      //         chegada: p.arr
+      //       }))
+      //     }))
+      //   })),
       sentidos: (dadosHash.timetable?.directions || [])
         .sort((a, b) => a.directionId - b.directionId)  
         .map((d, i) => ({
-          id_sentido_hash: d.directionId,
-          id_sentido: dadosId.timetable?.directions?.[i]?.directionId,
-          destino: d.desc,
+          id_sentido_hash: d.directionId, // IMPORTANTE - usar este no frontend
+          // id_sentido: dadosId.timetable?.directions?.[i]?.directionId,
+          destino: destinosPorSentido[d.directionId] || d.desc,
           servicos: (d.services || []).map((s, si) => ({
             id_servico_hash: s.serviceId,
             id_servico: dadosId.timetable?.directions?.[i]?.services?.[si]?.serviceId,
@@ -412,8 +437,8 @@ app.get('/linhas/:numero/horarios', async (req, res) => {
       sentidos: (dadosHash.timetable?.directions || [])
         .sort((a, b) => a.directionId - b.directionId)
         .map((d, i) => ({
-          id_sentido_hash: d.directionId,
-          id_sentido: dadosId.timetable?.directions?.[i]?.directionId,
+          id_sentido_hash: d.directionId, // IMPORTANTE - usar este no frontend
+          // id_sentido: dadosId.timetable?.directions?.[i]?.directionId,
           destino: d.desc,
 
           servicos: (d.services || []).map((s, si) => ({
