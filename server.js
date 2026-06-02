@@ -317,6 +317,128 @@ app.get('/linhas/:numero', async (req, res) => {
   }
 });
 
+
+/*
+Esta rota retorna apenas a tabela horario de um  linhas especifica
+*/
+app.get('/linhas/:numero/horarios', async (req, res) => {
+  const inicio = performance.now();
+  const numeroBusca = req.params.numero?.toLowerCase().trim();
+
+  try {
+    const resposta = await fetch(`http://localhost:${PORT}/linhas`);
+    const dadosLinhas = await resposta.json();
+
+    let linha = dadosLinhas.linhas.find(
+      l =>
+        l.codigo_linha?.toLowerCase() === numeroBusca ||
+        l.nome_linha?.toLowerCase() === numeroBusca
+    );
+
+    if (numeroBusca === "ceilandia") {
+      linha = dadosLinhas.linhas.find(
+        l => l.nome_linha?.toLowerCase() === "ceilândia"
+      );
+    }
+
+    if (!linha) {
+      let match = null;
+
+      if (numeroBusca.includes(".")) {
+        const [p1, p2] = numeroBusca.split(".");
+
+        match = dadosLinhas.linhas.find(
+          l => l.codigo_linha === `${p1.padStart(4 - p2.length, "0")}.${p2}`
+        );
+      }
+
+      if (!match) {
+        const buscaLimpa = numeroBusca
+          .replace(/\./g, "")
+          .padStart(4, "0");
+
+        match = dadosLinhas.linhas.find(
+          l =>
+            (l.codigo_linha || "")
+              .replace(/\./g, "")
+              .padStart(4, "0") === buscaLimpa
+        );
+      }
+
+      if (match?.codigo_linha) {
+        return res.redirect(`/linhas/${match.codigo_linha}/horarios`);
+      }
+
+      return res.status(404).json({
+        error: 'Linha não encontrada no sistema oficial.'
+      });
+    }
+
+    const [respostaHash, respostaId, respostaOperadoras] = await Promise.all([
+      fetch(`https://mobilibus.com/api/timetable?origin=web&v=2&project_hash=3c189&route_hash=${linha.id_linha_hash}`),
+      fetch(`https://mobilibus.com/api/timetable?origin=web&v=2&project_id=313&route_id=${linha.id_linha}`),
+      fetch('https://otp.mobilibus.com/FY7J-lwk85QGbn/otp/routers/default/index/routes')
+    ]);
+
+    const dadosHash = await respostaHash.json();
+    const dadosId = await respostaId.json();
+    const listaOperadoras = await respostaOperadoras.json();
+
+    const idLinhaString = String(dadosId.routeId);
+
+    const dadosOperadora = listaOperadoras.find(route =>
+      route.id === `1:${idLinhaString}` ||
+      route.id?.endsWith(`:${idLinhaString}`) ||
+      route.shortName === dadosHash.shortName
+    );
+
+    res.json({
+      tempo_execucao: `${(performance.now() - inicio).toFixed(2)}ms`,
+      qtd_sentidos: dadosHash.timetable?.directions.length,
+
+      linha: {
+        id_linha_hash: dadosHash.routeId,
+        id_linha: dadosId.routeId,
+        codigo_linha: dadosHash.shortName,
+        nome_linha: dadosHash.longName,
+        cor_operadora: dadosHash.color,
+        operadora: dadosOperadora
+          ? dadosOperadora.agencyName
+          : "Não encontrada",
+        tarifa: dadosHash.price
+      },
+
+      sentidos: (dadosHash.timetable?.directions || [])
+        .sort((a, b) => a.directionId - b.directionId)
+        .map((d, i) => ({
+          id_sentido_hash: d.directionId,
+          id_sentido: dadosId.timetable?.directions?.[i]?.directionId,
+          destino: d.desc,
+
+          servicos: (d.services || []).map((s, si) => ({
+            id_servico_hash: s.serviceId,
+            id_servico: dadosId.timetable?.directions?.[i]?.services?.[si]?.serviceId,
+            descricao: s.desc,
+            qtd_partidas: s.departures.length,
+
+            partidas: (s.departures || []).map(p => ({
+              partida: p.dep,
+              chegada: p.arr
+            }))
+          }))
+        }))
+    });
+
+  } catch (error) {
+    console.error('Erro na rota /linhas/:numero/horarios:', error.message);
+
+    res.status(500).json({
+      error: 'Erro ao buscar dados da API',
+      detalhe: error.message
+    });
+  }
+});
+
 /* 
 Esta rota retorna detalhes sobre alertas do sistema DF No Ponto.
 */
