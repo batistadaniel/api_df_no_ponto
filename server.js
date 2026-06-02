@@ -263,7 +263,8 @@ app.get('/linhas/:numero', async (req, res) => {
           qtd_paradas: paradas.length,
           qtd_veiculos_rodando: veiculos.length,
           veiculos_rodando: veiculos,
-          itinerario: paradas
+          itinerario: paradas,
+          tracado: dadosDetalhesHash?.shape
         };
       } catch (err) {
         console.error(`Erro ao buscar itinerário duplo da viagem ${idViagemHash}:`, err.message);
