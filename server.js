@@ -867,6 +867,299 @@ app.get('/linhas/:numero/gps', async (req, res) => {
 });
 
 /* 
+Esta rota retorna os pontos de parada do sistema DF No Ponto.
+*/
+app.get('/pontos-parada', async (req, res) => {
+  const inicio = performance.now();
+
+  try {
+    const resposta = await fetch(
+      'https://otp.mobilibus.com/FY7J-lwk85QGbn/otp/routers/default/index/stops'
+    );
+
+    const dados = await resposta.json();
+
+    res.json({
+      tempo_execucao: `${(performance.now() - inicio).toFixed(2)}ms`,
+      quantidade: dados.length,
+
+      pontos_parada: dados.map(parada => ({
+        id_parada_hash: parada.id,
+        codigo: parada.code || null,
+        nome: parada.name,
+        latitude: parada.lat,
+        longitude: parada.lon
+      }))
+    });
+
+  } catch (error) {
+    console.error('Erro na rota /pontos-parada:', error.message);
+
+    res.status(500).json({
+      error: 'Erro ao buscar pontos de parada',
+      detalhe: error.message
+    });
+  }
+});
+
+/* 
+Esta rota retorna um ponto de parada especifico do sistema DF No Ponto.
+*/
+app.get('/pontos-parada/:id_parada_hash', async (req, res) => {
+  const inicio = performance.now();
+  const { id_parada_hash } = req.params;
+
+  try {
+    const resposta = await fetch(
+      `https://otp.mobilibus.com/FY7J-lwk85QGbn/otp/routers/default/index/stops/${id_parada_hash}`
+    );
+
+    if (!resposta.ok) {
+      return res.status(404).json({
+        error: 'Ponto de parada não encontrado.'
+      });
+    }
+
+    const parada = await resposta.json();
+
+    res.json({
+      tempo_execucao: `${(performance.now() - inicio).toFixed(2)}ms`,
+
+      ponto_parada: {
+        id_parada: parada.id,
+        codigo: parada.code || null,
+        nome: parada.name,
+        latitude: parada.lat,
+        longitude: parada.lon
+      }
+    });
+
+  } catch (error) {
+    console.error(
+      'Erro na rota /pontos-parada/:id_parada_hash:',
+      error.message
+    );
+
+    res.status(500).json({
+      error: 'Erro ao buscar ponto de parada',
+      detalhe: error.message
+    });
+  }
+});
+
+/* 
+Esta rota retorna os horarios que cada linha vai passar por ponto de parada especifico do sistema DF No Ponto.
+*/
+app.get('/pontos-parada/:id_parada_hash/horarios', async (req, res) => {
+  const inicio = performance.now();
+
+  try {
+    const { id_parada_hash } = req.params;
+
+    const data =
+      req.query.data ||
+      new Date().toISOString().slice(0, 10).replace(/-/g, '');
+
+    const respostaParada = await fetch(
+      `https://otp.mobilibus.com/FY7J-lwk85QGbn/otp/routers/default/index/stops/${id_parada_hash}`
+    );
+
+    if (!respostaParada.ok) {
+      return res.status(404).json({
+        error: 'Ponto de parada não encontrado.'
+      });
+    }
+
+    const parada = await respostaParada.json();
+
+    const idParada = parada.id;
+
+    const respostaHorarios = await fetch(
+      `https://otp.mobilibus.com/FY7J-lwk85QGbn/otp/routers/default/index/stops/${idParada}/stoptimes/${data}`
+    );
+
+    if (!respostaHorarios.ok) {
+      return res.status(404).json({
+        error: 'Horários não encontrados para a data informada.'
+      });
+    }
+
+    const dadosHorarios = await respostaHorarios.json();
+
+    function segundosParaHora(segundos) {
+      const h = Math.floor(segundos / 3600);
+      const m = Math.floor((segundos % 3600) / 60);
+
+      return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    }
+
+    res.json({
+      tempo_execucao: `${(performance.now() - inicio).toFixed(2)}ms`,
+
+      ponto_parada: {
+        id_parada_hash,
+        id_parada: parada.id,
+        codigo: parada.code || null,
+        nome: parada.name,
+        latitude: parada.lat,
+        longitude: parada.lon
+      },
+
+      data_consulta: data,
+
+      qtd_linhas: dadosHorarios.length,
+
+      linhas: dadosHorarios.map(item => ({
+        id_linha: item.pattern?.route?.id || null,
+        codigo_linha: item.pattern?.route?.shortName || null,
+        nome_linha: item.pattern?.route?.longName || null,
+        operadora: item.pattern?.route?.agencyName || null,
+        cor_operadora: item.pattern?.route?.color || null,
+
+        destino:
+          item.times?.[0]?.headsign ||
+          item.pattern?.desc ||
+          null,
+
+        qtd_horarios: item.times?.length || 0,
+
+        horarios: (item.times || [])
+          .sort((a, b) => a.scheduledArrival - b.scheduledArrival)
+          .map(t => ({
+            horario: segundosParaHora(t.scheduledArrival),
+            trip_id: t.tripId,
+            parada_numero: t.stopIndex + 1,
+            total_paradas: t.stopCount,
+            tempo_real: t.realtime,
+            estado: t.realtimeState,
+            veiculo: t.vehicleId || null
+          }))
+      }))
+    });
+
+  } catch (error) {
+    console.error(
+      'Erro na rota /pontos-parada/:id_parada_hash/horarios:',
+      error.message
+    );
+
+    res.status(500).json({
+      error: 'Erro ao buscar horários da parada.',
+      detalhe: error.message
+    });
+  }
+});
+
+/* 
+Esta rota retorna as previsoes de cada linha que vai passar por ponto de parada especifico do sistema DF No Ponto.
+*/
+app.get('/pontos-parada/:id_parada_hash/previsoes', async (req, res) => {
+  const inicio = performance.now();
+
+  try {
+    const { id_parada_hash } = req.params;
+
+    const respostaParada = await fetch(
+      `https://otp.mobilibus.com/FY7J-lwk85QGbn/otp/routers/default/index/stops/${id_parada_hash}`
+    );
+
+    if (!respostaParada.ok) {
+      return res.status(404).json({
+        error: 'Ponto de parada não encontrado.'
+      });
+    }
+
+    const parada = await respostaParada.json();
+
+    const idParada = parada.id.split(':')[1];
+
+    const respostaPrevisoes = await fetch(
+      `https://mobilibus.com/api/departures?v=2&stop_id=${idParada}`
+    );
+
+    if (!respostaPrevisoes.ok) {
+      return res.status(404).json({
+        error: 'Previsões não encontradas.'
+      });
+    }
+
+    const dados = await respostaPrevisoes.json();
+
+    res.json({
+      tempo_execucao: `${(performance.now() - inicio).toFixed(2)}ms`,
+
+      ponto_parada: {
+        id_parada_hash,
+        id_parada: parada.id,
+        codigo: parada.code || null,
+        nome: parada.name,
+        latitude: parada.lat,
+        longitude: parada.lon
+      },
+
+      qtd_linhas: dados.trips?.length || 0,
+
+      linhas: (dados.trips || []).map(linha => ({
+        id_linha: linha.routeId,
+        codigo_linha: linha.shortName,
+        nome_linha: linha.longName,
+        destino: linha.headsign,
+        cor_operadora: linha.color,
+        tarifa: linha.price,
+        ar_condicionado: linha.ac,
+
+        qtd_previsoes: linha.departures?.length || 0,
+
+        previsoes: (linha.departures || []).map(previsao => {
+          const match = previsao.tripFeedId?.match(/^(\d+)S(\d+)P(\d+)$/);
+
+          const horarioPartida = match?.[3]
+            ? `${match[3].slice(0, 2)}:${match[3].slice(2, 4)}:${match[3].slice(4, 6)}`
+            : null;
+
+          return {
+            horario: previsao.time,
+            proximo_dia: previsao.nextDay,
+
+            acessivel: previsao.wa,
+            ar_condicionado: previsao.ac,
+            bicicletas: previsao.bikes,
+            viagem_extra: previsao.extra,
+
+            trip_feed_id: previsao.tripFeedId,
+
+            id_viagem: match?.[1] || null,
+            id_servico: match?.[2] || null,
+            horario_partida: horarioPartida,
+
+            veiculo: previsao.vehicleId || null,
+            gps_horario: previsao.gpsTime || null,
+            ultimo_sinal_segundos: previsao.positionAge || null,
+            direcao_graus: previsao.bearing || null,
+
+            parada_atual: previsao.stopSequence || null,
+            atraso_viagem_anterior: previsao.previousTripDelay || null
+          };
+        })
+      })),
+
+      alertas: dados.alerts || []
+    });
+
+  } catch (error) {
+    console.error(
+      'Erro na rota /pontos-parada/:id_parada_hash/previsoes:',
+      error.message
+    );
+
+    res.status(500).json({
+      error: 'Erro ao buscar previsões da parada.',
+      detalhe: error.message
+    });
+  }
+});
+
+/* 
 Esta rota retorna detalhes sobre alertas do sistema DF No Ponto.
 */
 app.get('/alertas', async (req, res) => {
@@ -998,16 +1291,76 @@ app.get('/alertas', async (req, res) => {
   }
 });
 
-// usar depois
+/* 
+Esta rota retorna detalhes sobre noticias do sistema DF No Ponto.
+*/
 app.get('/noticias', async (req, res) => {
   const inicio = performance.now();
 
+  const formatarData = (timestamp) => {
+    return new Date(timestamp).toLocaleString('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+  };
+
   try {
-    
-    res.json({ });
+
+    const [respostaHash, respostaId] = await Promise.all([
+      fetch('https://mobilibus.com/api/news?origin=web&project_hash=3c189'),
+      fetch('https://mobilibus.com/api/news?origin=web&project_id=313')
+    ]);
+
+    const noticiasHash = await respostaHash.json();
+    const noticiasId = await respostaId.json();
+
+    res.json({
+      tempo_execucao: `${(performance.now() - inicio).toFixed(2)}ms`,
+
+      qtd_noticias: noticiasHash.length,
+
+      noticias: noticiasHash.map((noticiaHash, index) => {
+        const noticiaId = noticiasId[index];
+
+        return {
+          id_noticia_hash: noticiaHash.newsId,
+          id_noticia: noticiaId?.newsId || null,
+
+          inicio_publicacao: formatarData(
+            noticiaHash.activeFrom
+          ),
+
+          fim_publicacao: formatarData(
+            noticiaHash.activeTo
+          ),
+
+          titulo: noticiaHash.title,
+          conteudo: noticiaHash.content,
+
+          possui_imagem: !!noticiaHash.urlImage,
+          imagem: noticiaHash.urlImage || null,
+
+          possui_link: !!noticiaHash.linkUrl,
+          link: noticiaHash.linkUrl || null
+        };
+      })
+    });
+
   } catch (error) {
-    console.error('Erro na rota /noticias:', error.message);
-    res.status(500).json({ error: 'Erro ao buscar dados da API', detalhe: error.message });
+    console.error(
+      'Erro na rota /noticias:',
+      error.message
+    );
+
+    res.status(500).json({
+      error: 'Erro ao buscar dados da API',
+      detalhe: error.message
+    });
   }
 });
 
