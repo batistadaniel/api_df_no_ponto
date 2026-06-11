@@ -1086,6 +1086,26 @@ app.get('/pontos-parada/:id_parada_hash/previsoes', async (req, res) => {
 
     const dados = await respostaPrevisoes.json();
 
+    const mapaDestinos = {};
+
+    const promessasDestinos = (dados.trips || []).map(async linha => {
+      try {
+        const respostaViagens = await fetch(
+          `http://localhost:${PORT}/linhas/${encodeURIComponent(linha.shortName)}/viagens`
+        );
+
+        if (!respostaViagens.ok) return;
+
+        const dadosViagens = await respostaViagens.json();
+
+        for (const viagem of dadosViagens.viagens || []) {
+          mapaDestinos[String(viagem.id_viagem)] = viagem.destino;
+        }
+      } catch {}
+    });
+
+    await Promise.all(promessasDestinos);
+
     res.json({
       tempo_execucao: `${(performance.now() - inicio).toFixed(2)}ms`,
 
@@ -1105,7 +1125,8 @@ app.get('/pontos-parada/:id_parada_hash/previsoes', async (req, res) => {
         id_viagem: linha.tripId,
         codigo_linha: linha.shortName,
         nome_linha: linha.longName,
-        destino: linha.headsign,
+        destino: mapaDestinos[String(linha.tripId)] || linha.headsign,
+        destino_v2: linha.headsign,
         cor_operadora: linha.color,
         tarifa: linha.price,
         ar_condicionado: linha.ac,
