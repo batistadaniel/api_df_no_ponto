@@ -794,6 +794,79 @@ app.get('/linhas/:numero/gps', async (req, res) => {
   }
 });
 
+app.get('/linhas/:numero/viagens', async (req, res) => {
+  const inicio = performance.now();
+  const numeroBusca = req.params.numero?.trim();
+
+  try {
+    const resposta = await fetch(`http://localhost:${PORT}/linhas`);
+    const dadosLinhas = await resposta.json();
+
+    const linha = dadosLinhas.linhas.find(
+      l =>
+        l.codigo_linha === numeroBusca ||
+        l.nome_linha === numeroBusca
+    );
+
+    if (!linha) {
+      return res.status(404).json({
+        error: 'Linha não encontrada no sistema oficial.'
+      });
+    }
+
+    const [respostaHash, respostaId] = await Promise.all([
+      fetch(
+        `https://mobilibus.com/api/timetable?origin=web&v=2&project_hash=3c189&route_hash=${linha.id_linha_hash}`
+      ),
+      fetch(
+        `https://mobilibus.com/api/timetable?origin=web&v=2&project_id=313&route_id=${linha.id_linha}`
+      )
+    ]);
+
+    const dadosHash = await respostaHash.json();
+    const dadosId = await respostaId.json();
+
+    const viagens = (dadosHash.timetable?.trips || []).map((trip, index) => ({
+      id_viagem_hash: trip.tripId,
+      id_viagem: dadosId.timetable?.trips?.[index]?.tripId || null,
+
+      sentido: trip.directionId === 0 ? 'Ida' : 'Volta',
+      id_sentido: trip.directionId,
+
+      destino: trip.tripDesc,
+
+      hora_inicio: trip.startTime || null,
+      hora_fim: trip.endTime || null
+    }));
+
+    res.json({
+      tempo_execucao: `${(performance.now() - inicio).toFixed(2)}ms`,
+
+      linha: {
+        id_linha_hash: dadosHash.routeId,
+        id_linha: dadosId.routeId,
+        codigo_linha: dadosHash.shortName,
+        nome_linha: dadosHash.longName
+      },
+
+      qtd_viagens: viagens.length,
+
+      viagens: viagens
+    });
+
+  } catch (error) {
+    console.error(
+      'Erro na rota /linhas/:numero/viagens:',
+      error.message
+    );
+
+    res.status(500).json({
+      error: 'Erro ao buscar viagens da linha.',
+      detalhe: error.message
+    });
+  }
+});
+
 /* 
 Esta rota retorna os pontos de parada do sistema DF No Ponto.
 */
@@ -1029,6 +1102,7 @@ app.get('/pontos-parada/:id_parada_hash/previsoes', async (req, res) => {
 
       linhas: (dados.trips || []).map(linha => ({
         id_linha: linha.routeId,
+        id_viagem: linha.tripId,
         codigo_linha: linha.shortName,
         nome_linha: linha.longName,
         destino: linha.headsign,
@@ -1071,7 +1145,15 @@ app.get('/pontos-parada/:id_parada_hash/previsoes', async (req, res) => {
         })
       })),
 
-      alertas: dados.alerts || []
+      qtd_alertas: dados.alerts.length || 0,
+      alertas: (dados.alerts || []).map(alerta => ({
+        id_linha_hash: alerta.routeId || null,
+        causa: alerta.cause || null,
+        efeito: alerta.effect || null,
+        idioma: alerta.lang || null,
+        titulo: alerta.header || null,
+        descricao: alerta.details || null
+      }))
     });
 
   } catch (error) {
