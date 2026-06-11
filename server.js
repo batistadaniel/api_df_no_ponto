@@ -163,30 +163,22 @@ const formatarDelay = (segundos) => {
 
 app.get('/linhas/:numero', async (req, res) => {
   const inicio = performance.now();
-  const numeroBusca = req.params.numero?.toLowerCase().trim();
+  const numeroBusca = req.params.numero?.trim();
 
   try {
     const resposta = await fetch(`http://localhost:${PORT}/linhas`);
     const dadosLinhas = await resposta.json();
 
-    let linha = dadosLinhas.linhas.find(l => l.codigo_linha?.toLowerCase() === numeroBusca || l.nome_linha?.toLowerCase() === numeroBusca);
-    if (numeroBusca === "ceilandia") linha = dadosLinhas.linhas.find(l => l.nome_linha?.toLowerCase() === "ceilândia");
+    const linha = dadosLinhas.linhas.find(
+      l =>
+        l.codigo_linha === numeroBusca ||
+        l.nome_linha === numeroBusca
+    );
 
     if (!linha) {
-      let match = null;
-
-      if (numeroBusca.includes(".")) {
-        const [p1, p2] = numeroBusca.split(".");
-        match = dadosLinhas.linhas.find(l => l.codigo_linha === `${p1.padStart(4 - p2.length, "0")}.${p2}`);
-      }
-
-      if (!match) {
-        const buscaLimpa = numeroBusca.replace(/\./g, "").padStart(4, "0");
-        match = dadosLinhas.linhas.find(l => (l.codigo_linha || "").replace(/\./g, "").padStart(4, "0") === buscaLimpa);
-      }
-
-      if (match?.codigo_linha) return res.redirect(`/linhas/${match.codigo_linha}`);
-      return res.status(404).json({ error: 'Linha não encontrada no systema oficial.' });
+      return res.status(404).json({
+        error: 'Linha não encontrada no sistema oficial.'
+      });
     }
 
     const [respostaHash, respostaId, respostaOperadoras] = await Promise.all([
@@ -331,52 +323,19 @@ Esta rota retorna apenas a tabela horaria de um linha especifica
 */
 app.get('/linhas/:numero/horarios', async (req, res) => {
   const inicio = performance.now();
-  const numeroBusca = req.params.numero?.toLowerCase().trim();
+  const numeroBusca = req.params.numero?.trim();
 
   try {
     const resposta = await fetch(`http://localhost:${PORT}/linhas`);
     const dadosLinhas = await resposta.json();
 
-    let linha = dadosLinhas.linhas.find(
+    const linha = dadosLinhas.linhas.find(
       l =>
-        l.codigo_linha?.toLowerCase() === numeroBusca ||
-        l.nome_linha?.toLowerCase() === numeroBusca
+        l.codigo_linha === numeroBusca ||
+        l.nome_linha === numeroBusca
     );
 
-    if (numeroBusca === "ceilandia") {
-      linha = dadosLinhas.linhas.find(
-        l => l.nome_linha?.toLowerCase() === "ceilândia"
-      );
-    }
-
     if (!linha) {
-      let match = null;
-
-      if (numeroBusca.includes(".")) {
-        const [p1, p2] = numeroBusca.split(".");
-
-        match = dadosLinhas.linhas.find(
-          l => l.codigo_linha === `${p1.padStart(4 - p2.length, "0")}.${p2}`
-        );
-      }
-
-      if (!match) {
-        const buscaLimpa = numeroBusca
-          .replace(/\./g, "")
-          .padStart(4, "0");
-
-        match = dadosLinhas.linhas.find(
-          l =>
-            (l.codigo_linha || "")
-              .replace(/\./g, "")
-              .padStart(4, "0") === buscaLimpa
-        );
-      }
-
-      if (match?.codigo_linha) {
-        return res.redirect(`/linhas/${match.codigo_linha}/horarios`);
-      }
-
       return res.status(404).json({
         error: 'Linha não encontrada no sistema oficial.'
       });
@@ -456,52 +415,21 @@ Esta rota retorna apenas o itinerario de um linha especifica
 */
 app.get('/linhas/:numero/itinerarios', async (req, res) => {
   const inicio = performance.now();
-  const numeroBusca = req.params.numero?.toLowerCase().trim();
+  const numeroBusca = req.params.numero?.trim();
 
   try {
+    const numeroBusca = req.params.numero?.trim();
+
     const resposta = await fetch(`http://localhost:${PORT}/linhas`);
     const dadosLinhas = await resposta.json();
 
-    let linha = dadosLinhas.linhas.find(
+    const linha = dadosLinhas.linhas.find(
       l =>
-        l.codigo_linha?.toLowerCase() === numeroBusca ||
-        l.nome_linha?.toLowerCase() === numeroBusca
+        l.codigo_linha === numeroBusca ||
+        l.nome_linha === numeroBusca
     );
 
-    if (numeroBusca === "ceilandia") {
-      linha = dadosLinhas.linhas.find(
-        l => l.nome_linha?.toLowerCase() === "ceilândia"
-      );
-    }
-
     if (!linha) {
-      let match = null;
-
-      if (numeroBusca.includes(".")) {
-        const [p1, p2] = numeroBusca.split(".");
-
-        match = dadosLinhas.linhas.find(
-          l => l.codigo_linha === `${p1.padStart(4 - p2.length, "0")}.${p2}`
-        );
-      }
-
-      if (!match) {
-        const buscaLimpa = numeroBusca
-          .replace(/\./g, "")
-          .padStart(4, "0");
-
-        match = dadosLinhas.linhas.find(
-          l =>
-            (l.codigo_linha || "")
-              .replace(/\./g, "")
-              .padStart(4, "0") === buscaLimpa
-        );
-      }
-
-      if (match?.codigo_linha) {
-        return res.redirect(`/linhas/${match.codigo_linha}/itinerarios`);
-      }
-
       return res.status(404).json({
         error: 'Linha não encontrada no sistema oficial.'
       });
