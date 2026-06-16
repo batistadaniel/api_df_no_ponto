@@ -2,6 +2,7 @@
   "name": "api_df_no_ponto",
   "version": "1.0.0",
   "main": "server.js",
+  "type": "module",
   "scripts": {
     "dev": "node --watch --no-warnings server.js"
   },
