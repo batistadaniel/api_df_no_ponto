@@ -7,7 +7,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const PORT = 3000;
+// const PORT = 3000;
 
 /* 
 Esta rota retorna algumas informacoes sobre os detalhes do sistema DF No Ponto.
@@ -990,8 +990,4 @@ app.get('/noticias', async (req, res) => {
   }
 });
 
-
-
-app.listen(PORT, () => {
-  console.log(`Servidor rodando em http://localhost:${PORT}`);
-});
+export default app;
